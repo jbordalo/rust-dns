@@ -1,1 +1,1 @@
-# DNS Server in Rust
+# DNS Lookup in Rust
