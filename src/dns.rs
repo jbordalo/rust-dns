@@ -1,5 +1,6 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use rand::Rng;
+use core::fmt;
 use std::{str, net::Ipv4Addr};
 
 fn encode_name(name: String, mut response: BytesMut) -> BytesMut {
@@ -30,16 +31,18 @@ impl Query {
         }
     }
 
-    pub fn to_str(&self) -> String {
-        format!("\tName: {}\n\tQuery Type: {}\n\tClass: {}", self.name, self.query_type, self.class)
-    }
-
     pub fn get_name(&self) -> String {
         self.name.clone()
     }
 }
 
-pub struct Answer {
+impl fmt::Display for Query {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "\tName: {}\n\tQuery Type: {}\n\tClass: {}", self.name, self.query_type, self.class)
+    }
+}
+
+struct Answer {
     name: String,
     query_type: u16,
     class: u16,
@@ -48,13 +51,12 @@ pub struct Answer {
     address: u32,
 }
 
-impl Answer {
-    pub fn to_str(&self) -> String {
-        let addr = Ipv4Addr::from(self.address);
-        format!("\tName: {}\n\tQuery Type: {}\n\tClass: {}\n\tTTL: {}\n\tData Length: {}\n\tAddress: {}", self.name, self.query_type, self.class, self.ttl, self.data_length, addr.to_string())
+impl fmt::Display for Answer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let addr = Ipv4Addr::from(self.address).to_string();
+        write!(f, "\tName: {}\n\tQuery Type: {}\n\tClass: {}\n\tTTL: {}\n\tData Length: {}\n\tAddress: {}", self.name, self.query_type, self.class, self.ttl, self.data_length, addr)
     }
 }
-
 pub struct DNSResponse {
     id: u16,
     flags: u16,
@@ -88,11 +90,14 @@ impl DNSResponse {
         self.answers.push(answer);
     }
 
-    pub fn to_str(&self) -> String {
+}
+
+impl fmt::Display for DNSResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let answer = self.answers.get(0).unwrap();
         let query = self.queries.get(0).unwrap();
 
-        format!(
+        write!(f,
             "Id: {:x}
 Flags: {:x}
 Questions: {}
@@ -102,7 +107,7 @@ Additional RRs: {}
 Queries:\n{}
 Answers:\n{}
 ",
-            self.id, self.flags, self.questions, self.answer_rr, self.auth_rr, self.add_rr, query.to_str(), answer.to_str()
+            self.id, self.flags, self.questions, self.answer_rr, self.auth_rr, self.add_rr, query, answer
         )
     }
 }

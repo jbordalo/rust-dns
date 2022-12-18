@@ -26,7 +26,7 @@ fn send_udp_request() -> std::io::Result<()> {
 
         let resp = parse_response(bytes.freeze());
 
-        println!("Response:\n{}", resp.to_str());
+        println!("Response:\n{}", resp);
 
         // socket.send_to(buf, &src)?;
     } // the socket is closed here
