@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use rand::Rng;
 use core::fmt;
-use std::{str, net::Ipv4Addr};
+use rand::Rng;
+use std::{net::Ipv4Addr, str};
 
 fn encode_name(name: String, mut response: BytesMut) -> BytesMut {
     let labels = name.split(".");
@@ -38,7 +38,11 @@ impl Query {
 
 impl fmt::Display for Query {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\tName: {}\n\tQuery Type: {}\n\tClass: {}", self.name, self.query_type, self.class)
+        write!(
+            f,
+            "\tName: {}\n\tQuery Type: {}\n\tClass: {}",
+            self.name, self.query_type, self.class
+        )
     }
 }
 
@@ -48,15 +52,114 @@ struct Answer {
     class: u16,
     ttl: u32,
     data_length: u16,
-    address: u32,
+    address: Ipv4Addr,
 }
 
 impl fmt::Display for Answer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let addr = Ipv4Addr::from(self.address).to_string();
-        write!(f, "\tName: {}\n\tQuery Type: {}\n\tClass: {}\n\tTTL: {}\n\tData Length: {}\n\tAddress: {}", self.name, self.query_type, self.class, self.ttl, self.data_length, addr)
+        write!(f, "\tName: {}\n\tQuery Type: {}\n\tClass: {}\n\tTTL: {}\n\tData Length: {}\n\tAddress: {}", self.name, self.query_type, self.class, self.ttl, self.data_length, self.address)
     }
 }
+
+type DNSName = String;
+pub struct DNSRequest {
+    id: u16,
+    name: DNSName,
+    flags: u16,
+    query_count: u16,
+    answer_rr: u16,
+    auth_rr: u16,
+    add_rr: u16,
+    queries: Vec<Query>,
+}
+
+impl DNSRequest {
+    pub fn new(name: DNSName) -> Self {
+        let query = Query::new(name.clone(), 0x1, 0x1);
+
+        let queries = vec![query];
+
+        DNSRequest {
+            name,
+            queries,
+            ..Default::default()
+        }
+    }
+}
+
+impl fmt::Display for DNSRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let query = self.queries.get(0).unwrap();
+
+        write!(
+            f,
+            "Id: {:x}
+Name: {},
+Flags: {:x}
+Query Count: {}
+Answer RRs: {}
+Authority RRs: {}
+Additional RRs: {}
+Queries:\n{}
+",
+            self.id,
+            self.name,
+            self.flags,
+            self.query_count,
+            self.answer_rr,
+            self.auth_rr,
+            self.add_rr,
+            query
+        )
+    }
+}
+
+impl From<DNSRequest> for Bytes {
+    fn from(dns_request: DNSRequest) -> Self {
+        let mut request = BytesMut::new();
+
+        // Id
+        request.put_u16(dns_request.id);
+        // Flags
+        request.put_u16(dns_request.flags);
+        // Query Count
+        request.put_u16(dns_request.query_count);
+        // Answer RRs
+        request.put_u16(dns_request.answer_rr);
+        // Authority RRs
+        request.put_u16(dns_request.auth_rr);
+        // Additional RRs
+        request.put_u16(dns_request.add_rr);
+
+        request = encode_name(dns_request.name, request);
+
+        // TODO add multiple queries
+        let query = dns_request.queries.get(0).unwrap();
+
+        // Query type
+        request.put_u16(query.query_type);
+        // Query class
+        request.put_u16(query.class);
+
+        request.freeze()
+    }
+}
+
+impl Default for DNSRequest {
+    fn default() -> Self {
+        DNSRequest {
+            id: rand::thread_rng().gen(),
+            name: String::new(),
+            flags: 0x0120,
+            query_count: 0x1,
+            answer_rr: 0,
+            auth_rr: 0,
+            add_rr: 0,
+            queries: Vec::new(),
+        }
+    }
+}
+
 pub struct DNSResponse {
     id: u16,
     flags: u16,
@@ -89,7 +192,6 @@ impl DNSResponse {
     fn add_answer(&mut self, answer: Answer) {
         self.answers.push(answer);
     }
-
 }
 
 impl fmt::Display for DNSResponse {
@@ -97,7 +199,8 @@ impl fmt::Display for DNSResponse {
         let answer = self.answers.get(0).unwrap();
         let query = self.queries.get(0).unwrap();
 
-        write!(f,
+        write!(
+            f,
             "Id: {:x}
 Flags: {:x}
 Questions: {}
@@ -107,7 +210,14 @@ Additional RRs: {}
 Queries:\n{}
 Answers:\n{}
 ",
-            self.id, self.flags, self.questions, self.answer_rr, self.auth_rr, self.add_rr, query, answer
+            self.id,
+            self.flags,
+            self.questions,
+            self.answer_rr,
+            self.auth_rr,
+            self.add_rr,
+            query,
+            answer
         )
     }
 }
@@ -135,7 +245,14 @@ fn parse_answers(dns_response: &mut DNSResponse, response: &mut Bytes) {
     for _ in 0..dns_response.answer_rr {
         response.get_u16();
         let name = dns_response.queries.get(0).unwrap().get_name();
-        let answer = Answer { name, query_type: response.get_u16(), class: response.get_u16(), ttl: response.get_u32(), data_length: response.get_u16(), address: response.get_u32() };
+        let answer = Answer {
+            name,
+            query_type: response.get_u16(),
+            class: response.get_u16(),
+            ttl: response.get_u32(),
+            data_length: response.get_u16(),
+            address: Ipv4Addr::from(response.get_u32()),
+        };
         dns_response.add_answer(answer);
     }
 }
@@ -154,30 +271,4 @@ pub fn parse_response(mut response: Bytes) -> DNSResponse {
     parse_answers(&mut dns_response, &mut response);
 
     dns_response
-}
-
-pub fn build_dns_request(name: String) -> Bytes {
-    let mut request = BytesMut::new();
-
-    // Id
-    request.put_u16(rand::thread_rng().gen());
-    // Flags
-    request.put_u16(0x0120);
-    // Query Count
-    request.put_u16(0x1);
-    // Answer RRs
-    request.put_u16(0);
-    // Authority RRs
-    request.put_u16(0);
-    // Additional RRs
-    request.put_u16(0);
-
-    request = encode_name(name, request);
-
-    // Query type
-    request.put_u16(0x1);
-    // Query class
-    request.put_u16(0x1);
-
-    request.freeze()
 }
